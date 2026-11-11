@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为从模板创建的新仓库设置项目名，无第三方依赖。"""
+"""Initialize a new repository created from this template using the Python standard library."""
 
 import argparse
 from pathlib import Path
@@ -20,33 +20,46 @@ typedef typeid typename union unsigned using virtual void volatile wchar_t while
 xor_eq std con prn aux nul
 """.split()) | {f"{prefix}{number}" for prefix in ("com", "lpt") for number in range(1, 10)}
 
+TEXT_SUFFIXES = frozenset({
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".inl", ".m", ".mm",
+    ".cmake", ".md", ".json", ".yml", ".yaml", ".txt", ".in", ".xml", ".manifest",
+    ".rc", ".plist", ".java", ".kt", ".gradle", ".kts", ".properties", ".toml",
+    ".py", ".sh", ".ps1", ".bat", ".cmd",
+})
+
 
 def initialize_project(root: Path, name: str) -> None:
-    """校验项目名后更新项目标识，并重命名公开头文件目录。"""
+    """Validate the name, update project identifiers and rename the public include directory."""
     if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", name):
-        raise ValueError("项目名须以小写字母开头，只能包含小写字母、数字和单个连字符。")
+        raise ValueError("Use lowercase letters, digits and single hyphens, starting with a letter.")
 
     identifier = name.replace("-", "_")
     if identifier in RESERVED_NAMES:
-        raise ValueError("项目名不能使用 C++ 保留字、std 或 Windows 保留目录名。")
+        raise ValueError("The project name cannot be a C++ keyword, std or a Windows reserved name.")
 
     root = root.resolve()
     template_include = root / "include" / "cpp_template"
     if not template_include.is_dir() or not (root / "CMakeLists.txt").is_file():
-        raise ValueError("未找到模板文件；请在完整模板中运行，且只初始化一次。")
+        raise ValueError("Template files are missing. Run this once in a complete template checkout.")
 
     destination = template_include.with_name(identifier)
     if destination != template_include and destination.exists():
-        raise ValueError(f"目标头文件目录已存在：{destination}")
+        raise ValueError(f"The destination include directory already exists: {destination}")
 
     replacements = (
         ("CPP_TEMPLATE", identifier.upper()),
         ("cpp_template", identifier),
         ("cpp-template", name),
     )
-    files = [root / path for path in ("CMakeLists.txt", "CMakePresets.json", "vcpkg.json", "README.md", "AGENTS.md")]
-    for directory in ("cmake", "docs", "include", "src", "tests", "third_party", ".github"):
-        files.extend(path for path in (root / directory).rglob("*") if path.is_file())
+    files = [
+        root / path
+        for path in ("CMakeLists.txt", "CMakePresets.json", "vcpkg.json", "README.md", "AGENTS.md")
+    ]
+    for directory in ("cmake", "docs", "include", "src", "platforms", "tests", ".github"):
+        files.extend(
+            path for path in (root / directory).rglob("*")
+            if path.is_file() and (path.name == "CMakeLists.txt" or path.suffix in TEXT_SUFFIXES)
+        )
 
     # 先完成全部读取，避免编码或文件读取错误导致只更新部分文件。
     updates = []
@@ -68,13 +81,13 @@ def initialize_project(root: Path, name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("name", help="新项目名，例如 my-app")
+    parser.add_argument("name", help="New project name, for example my-app")
     arguments = parser.parse_args()
     try:
         initialize_project(Path(__file__).resolve().parent.parent, arguments.name)
     except (OSError, UnicodeError, ValueError) as error:
-        parser.exit(1, f"初始化失败：{error}\n")
-    print(f"已初始化项目 {arguments.name}，可执行 cmake --workflow --preset debug。")
+        parser.exit(1, f"Initialization failed: {error}\n")
+    print(f"Initialized {arguments.name}. Run cmake --workflow --preset ninja-release.")
 
 
 if __name__ == "__main__":

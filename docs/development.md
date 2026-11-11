@@ -1,47 +1,43 @@
 # 开发与第三方依赖
 
-## 跨平台构建
+## 代码与职责
 
-根目录 `CMakePresets.json` 是 configure、build、test 的共同入口，`debug` / `release` workflow 将三步串联。单配置生成器使用 `CMAKE_BUILD_TYPE`，多配置生成器由 build / test preset 的 `configuration` 选择同名配置。
+公共头文件位于 `include/cpp_template/`，共享实现位于 `src/`，桌面入口位于 `platforms/desktop/`。头文件从所属命名空间路径包含，例如 `#include "cpp_template/greeting.hpp"`。平台专用实现按平台放置，由 `cmake/platforms/` 选择和装配。
 
-平台专有的编译参数统一放在 `cmake/project_options.cmake`；只对本项目目标设置，不把警告参数传播给第三方依赖。公开的 C++20 要求通过目标依赖传递给使用方。
+根 `CMakeLists.txt` 组织配置、依赖、共享库、平台程序、安装与测试。警告、异常和缓存通过目标级配置应用于自有目标，第三方保留自己的配置。`cpp_template::core` 向调用方传递 C++20 要求，fmt 保持实现私有依赖。
 
-如需显式选择编译器或生成器，在一个新的构建目录配置，避免复用不同工具链的 CMake 缓存，并将 vcpkg 工具链一并传入：
+示例 `greeting(name, output)` 返回成功状态，空名字返回 `false` 并清空输出。调用方检查返回值，CLI 以英文错误信息和非零退出码报告失败。自有目标关闭 C++ 异常，fmt 调用使用编译期格式字符串并以 `FMT_EXCEPTIONS=0` 配置当前编译单元。
 
-```sh
-cmake -S . -B build/custom -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build build/custom
-ctest --test-dir build/custom --output-on-failure --no-tests=error
-```
-
-此示例需要本机已有 Ninja 和 Clang；使用 MSVC + Ninja 时，从 Visual Studio Developer PowerShell 执行并改用 `cl`。机器专属设置可以写入未纳入版本管理的 `CMakeUserPresets.json`。
-
-GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试；可以在仓库 Actions 页面查看每次实际结果。
+代码采用 Allman 大括号、4 空格、100 列与 UTF-8/LF。`.clang-format` 和 `.editorconfig` 为格式入口。源码字符串使用英文，本地化和 Unicode 测试数据通过独立资源承载。完整状态、错误、资源所有权、生命周期、访问权限、命名与模块边界约定见 [AGENTS.md](../AGENTS.md)。
 
 ## 第三方依赖
 
-第三方库由根目录的 `vcpkg.json` manifest 声明，由 `VCPKG_ROOT` 指向的 vcpkg 工具链在 CMake configure 时安装；具体版本由 `builtin-baseline` 和 `overrides` 固定。模板使用 `{fmt}`：`third_party/CMakeLists.txt` 调用 `find_package(fmt CONFIG REQUIRED GLOBAL)`，`cpp_template_core` 链接 `fmt::fmt`，并在 `greeting()` 里实际调用格式化函数。`GLOBAL` 使根目录定义的目标也能看到导入的库目标。
+跨平台 port 由根 `vcpkg.json` 声明，版本由 `builtin-baseline` 和 `overrides` 固定。`VCPKG_ROOT` 指向已有 vcpkg，根 Presets 在配置时加载其工具链。
 
-添加新依赖时，运行 `vcpkg add port <port>` 或编辑 `vcpkg.json`，在 `third_party/CMakeLists.txt` 查找包，再将它链接到实际使用的 CMake 目标。依赖的 CMake target 名称以该包的 vcpkg usage 输出为准。例如：
+模板在 `cmake/dependencies/core.cmake` 中查找 `{fmt}`，`cpp_template_core` 链接 `fmt::fmt`，并在 `greeting()` 中实际调用格式化函数。新增依赖在 manifest 声明后，由所属依赖模块查找，再链接到实际消费者。
 
 ```cmake
-# third_party/CMakeLists.txt
-find_package(example CONFIG REQUIRED GLOBAL)
+# cmake/dependencies/core.cmake
+find_package(example CONFIG REQUIRED)
 
-# 根 CMakeLists.txt
+# 使用该依赖的目标
 target_link_libraries(cpp_template_core PRIVATE example::example)
 ```
 
-仅实现内部使用的依赖选择 `PRIVATE`；公开头文件需要的依赖选择 `PUBLIC`。`third_party/` 保留给确需本地维护的 vcpkg overlay ports、triplets 或补丁；默认不包含外部源码。使用本地扩展时在 `CMakePresets.json` 设置对应的 `VCPKG_OVERLAY_PORTS` 或 `VCPKG_OVERLAY_TRIPLETS`，不要把构建产物放入 Git。
+实现内部使用的依赖采用 `PRIVATE`，公开头文件需要的依赖采用 `PUBLIC`。目标名称以包提供的 vcpkg usage 为准。依赖接入以实际编译和链接为验收。
 
-## 测试与格式
+`third_party/` 保存确需维护的补丁、overlay ports 和 triplets。对应设置写入 Presets 的 `VCPKG_OVERLAY_PORTS` / `VCPKG_OVERLAY_TRIPLETS`。没有适用 port 的源码依赖使用固定版本 Git 子项目，并保留许可和来源。补丁在构建前应用，普通构建复用现有依赖缓存。
 
-`tests/` 使用 CTest 运行库单元测试和 CLI 测试。测试使用普通失败返回值，在 Release 中同样生效；新增业务通过正式接口验证。
+## 项目初始化
 
-初始化脚本测试全部在临时目录执行：
+`python scripts/init_project.py my-app` 将项目名改为 `my-app`，目标和命名空间改为 `my_app`，更新根配置、CMake 模块、头文件、共享实现、平台入口、C++ 测试、CI 和文档，并重命名公开头文件目录。
 
-```sh
-python -m unittest discover -s scripts/tests -v
-```
+初始化先校验名称、目标目录和待修改文件的文本编码，再写入。脚本识别源码及配置的文本后缀，平台图标等二进制资源、本地脚本、第三方补丁、参考资料、构建缓存和交付产物保留原内容。新增文本格式时同步扩展脚本的 `TEXT_SUFFIXES`。脚本测试在隔离目录中验证这些边界。项目名称及目录调整采用当前版本的一次同步更新。
 
-`.editorconfig` 统一文本编码与换行，`.clang-format` 提供 C++ 格式配置。构建目录、IDE 缓存和机器专属 preset 已由 `.gitignore` 排除。
+## 协作流程
+
+一个功能在一个工作分支积累实现、修复和验证。独立功能从当时主干创建。完成后以 `git merge --no-ff` 合并一次，保留普通提交和明确的 merge commit。主干提交经由工作分支进入，既有初始化历史保留。
+
+GitHub Actions 通过 `workflow_dispatch` 手动触发。工作流登记 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Ninja Debug / Release 构建，Release 运行测试。Action 固定完整提交 SHA，由 Dependabot 维护。实际执行结果以 Actions 为准。
+
+构建命令与目录约定见[构建指南](building.md)，测试入口和已验证范围见[测试文档](testing.md)。

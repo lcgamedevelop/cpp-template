@@ -1,4 +1,4 @@
-"""在隔离目录验证模板初始化，不修改仓库中的模板。"""
+"""Test initialization in isolated directories."""
 
 import importlib.util
 import json
@@ -19,23 +19,27 @@ class InitializeProjectTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        for directory in ("include/cpp_template", "src", ".github/workflows", "docs", "third_party", "scripts", "build/debug", "references"):
+        for directory in (
+            "include/cpp_template", "src", "platforms/desktop", ".github/workflows", "docs",
+            "cmake/dependencies", "third_party", "scripts", "build/debug",
+            "output/windows/x64/release/runtime", "references",
+        ):
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         self.write("CMakeLists.txt", "project(cpp_template)\noption(CPP_TEMPLATE_BUILD_APP ON)\n")
         self.write("vcpkg.json", '{"name":"cpp-template","dependencies":["fmt"]}\n')
         self.write("include/cpp_template/greeting.hpp", "namespace cpp_template {}\n")
-        self.write("src/main.cpp", '#include "cpp_template/greeting.hpp"\n')
+        self.write("platforms/desktop/main.cpp", '#include "cpp_template/greeting.hpp"\n')
         self.write(".github/workflows/ci.yml", "run: cmake -D CPP_TEMPLATE_WARNINGS_AS_ERRORS=ON\n")
         self.write("README.md", "# cpp-template\ncpp_template_app\n")
         self.write("docs/development.md", "target_link_libraries(cpp_template_core PRIVATE example::example)\n")
-        self.write("third_party/CMakeLists.txt", "# Link cpp_template_core after adding the dependency.\n")
+        self.write("cmake/dependencies/core.cmake", "# Link cpp_template_core after adding the dependency.\n")
 
     def write(self, relative, content):
         (self.root / relative).write_text(content, encoding="utf-8")
 
     def test_initializes_identifiers_headers_and_workflow(self):
         MODULE.initialize_project(self.root, "my-app2")
-        self.assertEqual((self.root / "src/main.cpp").read_text(), '#include "my_app2/greeting.hpp"\n')
+        self.assertEqual((self.root / "platforms/desktop/main.cpp").read_text(), '#include "my_app2/greeting.hpp"\n')
         self.assertTrue((self.root / "include/my_app2/greeting.hpp").is_file())
         self.assertFalse((self.root / "include/cpp_template").exists())
         self.assertIn("MY_APP2_BUILD_APP", (self.root / "CMakeLists.txt").read_text())
@@ -43,7 +47,7 @@ class InitializeProjectTests(unittest.TestCase):
         self.assertIn('"name":"my-app2"', (self.root / "vcpkg.json").read_text())
         self.assertEqual((self.root / "README.md").read_text(), "# my-app2\nmy_app2_app\n")
         self.assertIn("my_app2_core", (self.root / "docs/development.md").read_text())
-        self.assertIn("my_app2_core", (self.root / "third_party/CMakeLists.txt").read_text())
+        self.assertIn("my_app2_core", (self.root / "cmake/dependencies/core.cmake").read_text())
 
     def test_rejects_invalid_names_before_changing_files(self):
         original = (self.root / "CMakeLists.txt").read_bytes()
@@ -59,11 +63,16 @@ class InitializeProjectTests(unittest.TestCase):
             MODULE.initialize_project(self.root, "my-app")
         self.assertIn("cpp_template", (self.root / "CMakeLists.txt").read_text())
 
-    def test_leaves_scripts_and_build_artifacts_untouched(self):
-        for relative in ("scripts/local.txt", "build/debug/cache.txt", "references/local.txt"):
+    def test_leaves_scripts_build_output_and_third_party_untouched(self):
+        protected = (
+            "scripts/local.txt", "build/debug/cache.txt",
+            "output/windows/x64/release/runtime/local.txt", "references/local.txt",
+            "third_party/local.patch",
+        )
+        for relative in protected:
             self.write(relative, "cpp_template CPP_TEMPLATE cpp-template")
         MODULE.initialize_project(self.root, "my-app")
-        for relative in ("scripts/local.txt", "build/debug/cache.txt", "references/local.txt"):
+        for relative in protected:
             self.assertEqual((self.root / relative).read_text(), "cpp_template CPP_TEMPLATE cpp-template")
 
     def test_rejects_second_initialization(self):
@@ -72,15 +81,23 @@ class InitializeProjectTests(unittest.TestCase):
             MODULE.initialize_project(self.root, "another-app")
         self.assertTrue((self.root / "include/my_app/greeting.hpp").is_file())
 
+    def test_preserves_binary_platform_resources(self):
+        icon = self.root / "platforms/desktop/app.ico"
+        content = b"\x00\x00\xff\xffcpp_template"
+        icon.write_bytes(content)
+        MODULE.initialize_project(self.root, "my-app")
+        self.assertEqual(icon.read_bytes(), content)
+
     def test_real_template_copy_initializes_every_build_file(self):
         template = SCRIPT.parents[1]
         project_name = json.loads((template / "vcpkg.json").read_text(encoding="utf-8"))["name"]
         if project_name != "cpp-template":
             self.assertTrue((template / "include" / project_name.replace("-", "_")).is_dir())
-            self.skipTest("项目已经从模板完成初始化")
+            self.skipTest("The project has already been initialized from this template")
 
-        for directory in (".github", "cmake", "docs", "include", "src", "tests", "third_party"):
-            shutil.copytree(template / directory, self.root / directory, dirs_exist_ok=True)
+        for directory in (".github", "cmake", "docs", "include", "src", "platforms", "tests", "third_party"):
+            shutil.copytree(template / directory, self.root / directory, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         for filename in ("CMakeLists.txt", "CMakePresets.json", "vcpkg.json", "README.md", "AGENTS.md"):
             shutil.copy2(template / filename, self.root / filename)
 
@@ -88,9 +105,11 @@ class InitializeProjectTests(unittest.TestCase):
 
         self.assertTrue((self.root / "include/new_game/greeting.hpp").is_file())
         self.assertIn('"name": "new-game"', (self.root / "vcpkg.json").read_text())
-        for directory in ("cmake", "docs", "include", "src", "tests", "third_party", ".github"):
+        for directory in ("cmake", "docs", "include", "src", "platforms", "tests", ".github"):
             for path in (self.root / directory).rglob("*"):
-                if path.is_file():
+                if path.is_file() and (
+                    path.name == "CMakeLists.txt" or path.suffix in MODULE.TEXT_SUFFIXES
+                ):
                     self.assertNotIn("cpp_template", path.read_text(encoding="utf-8"), str(path))
         self.assertNotIn("cpp_template", (self.root / "CMakeLists.txt").read_text())
 

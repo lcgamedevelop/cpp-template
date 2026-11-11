@@ -9,13 +9,28 @@
     {
       "name": "vcpkg",
       "hidden": true,
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "environment": {
+        "VSLANG": "1033"
+      },
+      "cacheVariables": {
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/${presetName}"
+      }
+    },
+    {
+      "name": "ninja-cache",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CPP_TEMPLATE_USE_COMPILER_CACHE": true,
+        "CPP_TEMPLATE_REQUIRE_COMPILER_CACHE": true
+      }
     },
     {
       "name": "debug",
       "displayName": "Debug",
       "inherits": "vcpkg",
-      "binaryDir": "${sourceDir}/build/debug",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CPP_TEMPLATE_BUILD_APP": true,
@@ -27,13 +42,23 @@
       "name": "release",
       "displayName": "Release",
       "inherits": "vcpkg",
-      "binaryDir": "${sourceDir}/build/release",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CPP_TEMPLATE_BUILD_APP": true,
         "CPP_TEMPLATE_BUILD_TESTS": true,
         "BUILD_TESTING": true
       }
+    },
+    {
+      "name": "ninja-debug",
+      "displayName": "Ninja Debug with compiler caching",
+      "inherits": ["ninja-cache", "debug"]
+    },
+    {
+      "name": "ninja-release",
+      "displayName": "Ninja Release with compiler caching",
+      "inherits": ["ninja-cache", "release"]
     }
   ],
   "buildPresets": [
@@ -46,13 +71,23 @@
       "name": "release",
       "configurePreset": "release",
       "configuration": "Release"
+    },
+    {
+      "name": "ninja-debug",
+      "configurePreset": "ninja-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-release",
+      "configurePreset": "ninja-release",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
     {
-      "name": "debug",
-      "configurePreset": "debug",
-      "configuration": "Debug",
+      "name": "release",
+      "configurePreset": "release",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       },
@@ -61,8 +96,8 @@
       }
     },
     {
-      "name": "release",
-      "configurePreset": "release",
+      "name": "ninja-release",
+      "configurePreset": "ninja-release",
       "configuration": "Release",
       "output": {
         "outputOnFailure": true
@@ -77,8 +112,7 @@
       "name": "debug",
       "steps": [
         { "type": "configure", "name": "debug" },
-        { "type": "build", "name": "debug" },
-        { "type": "test", "name": "debug" }
+        { "type": "build", "name": "debug" }
       ]
     },
     {
@@ -87,6 +121,21 @@
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
         { "type": "test", "name": "release" }
+      ]
+    },
+    {
+      "name": "ninja-debug",
+      "steps": [
+        { "type": "configure", "name": "ninja-debug" },
+        { "type": "build", "name": "ninja-debug" }
+      ]
+    },
+    {
+      "name": "ninja-release",
+      "steps": [
+        { "type": "configure", "name": "ninja-release" },
+        { "type": "build", "name": "ninja-release" },
+        { "type": "test", "name": "ninja-release" }
       ]
     }
   ]

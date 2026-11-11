@@ -2,17 +2,19 @@
 
 #include <fmt/format.h>
 
-#include <stdexcept>
-
-namespace cpp_template {
-
-std::string greeting(std::string_view name)
+namespace cpp_template
 {
-    if (name.empty()) {
-        throw std::invalid_argument("name must not be empty");
+
+bool greeting(std::string_view name, std::string& output)
+{
+    if (name.empty())
+    {
+        output.clear();
+        return false;
     }
 
-    return fmt::format("Hello, {}!", name);
+    output = fmt::format("Hello, {}!", name);
+    return true;
 }
 
 } // namespace cpp_template
